@@ -51,6 +51,7 @@ def find_rotation(q):
     R[2,0] = 2*(bd-ac)
     R[2,1] = 2*(cd+ab)
     R[2,2] = aa-bb-cc+dd
+
     return R
 
 def transform_to_local(vec, q): #vec is a 3x1 vector, q is a 4x1 vector, outputs the transformed 3x1 vector vec_loc
@@ -71,7 +72,7 @@ if __name__ == '__main__':
     velocities = np.empty((0, 3))
     vas = np.empty((0, 1))
     fpas = np.empty((0, 1))
-    attitudes = np.empty((0, 4))
+    atts = np.empty((0, 4))
     alphas = np.empty((0, 1))
     va_dots = np.empty((0, 1))
     fpa_dots = np.empty((0, 1))
@@ -82,18 +83,21 @@ if __name__ == '__main__':
         velocities = np.append(velocities, [[row['vx'], row['vy'], row['vz']]], axis=0)
         # airspeed v_a
         vas = np.append(vas, [[np.linalg.norm(row['vx':'vz'])]], axis=0)
+
+        # attitude quaternions
+        atts = np.append(atts, [[row['q[0]'], row['q[1]'], row['q[2]'], row['q[3]']]], axis=0)
+        # Rotation Matrix from body fram to local frame
+        R = find_rotation(atts[it, :])
         # flight path angles
+        yaw = np.arctan2(-R[0,1], -1.0+2*(row['q[0]']**2 + row['q[1]']**2)) #arctan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+        forward_vector = np.array([1.0*np.cos(yaw), 1.0*np.sin(yaw), 0.0])
         if vas[it] != 0:
-            fpas = np.append(fpas,[np.arcsin(- row['vz'] / vas[it])], axis=0) #fpa = arcsin(vz/va) in rad
+            fpas = np.append(fpas, [[np.arctan2(- row['vz'], project(velocities[it, :], forward_vector))]], axis=0)  # fpa = arcsin(vz/va) in rad
         else:
             fpas = np.append(fpas, [[0.0]], axis=0)  # fpa = 0 in rad
-        # attitude quaternions
-        attitudes = np.append(attitudes, [[row['q[0]'], row['q[1]'], row['q[2]'], row['q[3]']]], axis=0)
-        #alpha
-        R = find_rotation(attitudes[it, :])
+        # alpha
         pitch = np.arcsin(-R[2, 0])
-        alphas = np.append(alphas, [pitch-fpas[it]], axis=0) #for some reason this gives negative alphas, since for some reason the pitch is always higher than the flight patch angle!
-
+        alphas = np.append(alphas, [pitch - fpas[it]], axis=0)  # for some reason this gives negative alphas, since for some reason the pitch is always higher than the flight patch angle!
         # va_dots
         body_accel = np.array([row['x'], row['y'], row['z']])
         local_accel = R @ body_accel
