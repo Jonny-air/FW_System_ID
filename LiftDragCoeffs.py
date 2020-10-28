@@ -121,7 +121,7 @@ if __name__ == '__main__':
     for j in range(MergedDf.shape[0]):
         if vas[j] == 0.0:
             continue
-        y_j = 2*m/rho*(va_dots[j]+g*np.sin(fpas[j]))/(vas[j]*vas[j])     
+        y_j = -2*m/rho*(va_dots[j]+g*np.sin(fpas[j]))/(vas[j]*vas[j])
         y = np.append(y, [y_j], axis=0)
         A = np.append(A, [[1.0, alphas[j,0], alphas[j,0]*alphas[j,0]]], axis=0)     
 
