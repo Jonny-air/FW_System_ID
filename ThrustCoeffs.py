@@ -1,22 +1,42 @@
 import numpy as np
-import csv
+import pandas as pd
+
+#setup
+start_min = 1
+start_sec = 2
+end_min = 1
+end_sec = 30
+log_name = 'log_B2'
 
 #parameters
 g =9.81
 m = 3.7
 rho = 1.25
 n_0 = 15.03 #radps
-n_slope = 1157.4
+n_slope = 985
 thrust_incl = 0.0 #rad
 D_p = 0.28
-CD = np.array([78.76906, 59.33149, -307.0041])
-CL = np.array([31.10244, 62.75034])
+CD = np.array(
+    [0.024198128492773214, 0.2664271480219045, -1.7823456231415864]
+)
+CL = np.array(
+    [0.18271711466591634, 0.5105387076972424]
+)
 
-ActuatorCSV = open('./IDFILES/log_01_actuator_controls_0_0.csv', mode='r')
-AttitudeCSV = open('./IDFILES/log_01_vehicle_attitude_0.csv', mode='r')
-PosCSV = open('./IDFILES/log_01_vehicle_local_position_0.csv', mode='r')
-VelCSV = open('./IDFILES/log_01_airspeed_0.csv', mode='r')
-AccelCSV = open('./IDFILES/log_01_sensor_accel_0.csv', mode='r')
+#setup behind the curtains
+start_time = start_min*60+start_sec
+end_time = end_min*60+end_sec
+AttitudeDF = pd.read_csv(f'./IDFILES/{log_name}_vehicle_attitude_0.csv', index_col=0, usecols=[0, 4, 5, 6, 7])
+PosDF = pd.read_csv(f'./IDFILES/{log_name}_vehicle_local_position_0.csv', index_col=0, usecols=[0, 10, 11, 12])
+AccelDF = pd.read_csv(f'./IDFILES/{log_name}_sensor_accel_0.csv', index_col=0, usecols=[0, 3, 4, 5])
+ActuatorDF = pd.read_csv(f'./IDFILES/{log_name}_actuator_controls_0_0.csv', index_col=0, usecols=[0, 5])
+
+MergedDf = PosDF.merge(AttitudeDF, left_index=True, right_index=True)
+MergedDf = MergedDf.merge(AccelDF, left_index=True, right_index=True)
+MergedDf = pd.merge_asof(MergedDf, ActuatorDF, left_index=True, right_index=True)
+
+#only take lines we want
+MergedDf = MergedDf.query(f'timestamp >= {start_time*1.0E6} and timestamp <= {end_time*1.0E6}')
 
 def find_rotation(q):
     R = np.empty([3,3])
@@ -32,6 +52,10 @@ def find_rotation(q):
     cd = q[2]*q[3]
     dd = q[3]*q[3]
 
+    roll = np.arctan2(2*(cd+ab), 1.0-2.0*(bb + cc)) #atan2(2.0 * (d * c + a * b) , 1.0 - 2.0 * (q.q1 * q.q1 + q.q2 * q.q2))
+    pitch = np.arcsin(2*(ac-bd))
+    yaw = np.arctan2(2*(bc+ad), -1.0+2.0*(aa + bb))
+
     R[0,0] = aa+bb-cc-dd
     R[0,1] = 2*(bc-ad)
     R[0,2] = 2*(bd+ac)
@@ -41,7 +65,8 @@ def find_rotation(q):
     R[2,0] = 2*(bd-ac)
     R[2,1] = 2*(cd+ab)
     R[2,2] = aa-bb-cc+dd
-    return R
+
+    return R, roll, pitch, yaw
 
 def transform_to_local(vec, q): #vec is a 3x1 vector, q is a 4x1 vector, outputs the transformed 3x1 vector vec_loc
     R = find_rotation(q)
@@ -57,97 +82,70 @@ def project(v, on_v):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    vec = np.array([[1, 0, 0], [0,1,0], [2, 1, 1]])
-    q = np.array([[0.997582, 0.0213816, 0.0261228, -0.0608291], [0.997582, 0.0213816, 0.0261228, -0.0608291],
-                  [0.997582, 0.0213816, 0.0261228, -0.0608291]])
 
-    v_l = np.empty((0,3))
-    for j in range(vec.shape[0]):
-        v_l = np.append(v_l, [transform_to_local(vec[j], q[j])], axis=0)
-        project(v_l[j], vec[j])
-
-    #velocities:::
-    POSreader = csv.reader(PosCSV, delimiter=',', quotechar='|')
-    next(POSreader) #skip first line
-    velocities = np.empty((0,3))
-    vas = np.empty((0,1))
+    velocities = np.empty((0, 3))
+    vas = np.empty((0, 1))
     fpas = np.empty((0, 1))
-    for row in POSreader:
-        velocities = np.append(velocities, [[float(row[10]), float(row[11]), float(row[12])]], axis=0)
-        va = np.linalg.norm(row[10:13])
-        vas = np.append(vas, [[va]], axis=0)
-        if va != 0:
-            x = -float(row[12]) / va
-            fpas = np.append(fpas,[[np.arcsin(x)]], axis=0) #fpa = arccos(vz/va) in rad
-        else:
-            fpas = np.append(fpas, [[0.0]], axis=0)  # fpa = 0 in rad
-
-    #Attitudes:::
-    ATTreader = csv.reader(AttitudeCSV, delimiter=',', quotechar='|')
-    next(ATTreader)# skip line, we want 4,5,6,7 = q0, q1, q2, q3 attitude quaternion in local inertial frame
-    attitudes = np.empty((0, 4))
-    for row in ATTreader:
-        attitude = np.array([float(row[4]), float(row[5]), float(row[6]), float(row[7])])
-        attitudes = np.append(attitudes, [attitude], axis=0)
-
-    #accelerations:::
-    ACCELreader = csv.reader(AccelCSV, delimiter=',', quotechar='|')
-    next(ACCELreader) # skip line, we want 3,4,5 = x,y,z body NED
+    atts = np.empty((0, 4))
     alphas = np.empty((0, 1))
     va_dots = np.empty((0, 1))
     fpa_dots = np.empty((0, 1))
-    index = 0
-    for row in ACCELreader:
-        body_accel = np.array([float(row[3]), float(row[4]), float(row[5])])
-        R = find_rotation(attitudes[index,:])
-        local_accel = R @ body_accel
-        #pitch: asin(2.0 * (q.q2 * q.q0 - q.q3 * q.q1))
-        pitch = np.arcsin(-R[2, 0])
-        #roll: atan2(2.0 * (q.q3 * q.q2 + q.q0 * q.q1) , 1.0 - 2.0 * (q.q1 * q.q1 + q.q2 * q.q2))
-        #roll = np.arctan2(R[2,1] , 1.0 - 2.0 * (attitudes[index,1]*attitudes[index,1]+ attitudes[index,2]*attitudes[index,2]))
-
-        #alpha
-        alpha = float(pitch - fpas[int(round(index/2))]) #TODO fix this. dont go by rows but rather by timestamps
-        alphas = np.append(alphas, [[alpha]], axis=0)
-
-        #va_dot
-        va_dot = project(local_accel/100.0, velocities[int(round(index/2)),:]) #TODO fix this. dont go by rows but rather by timestamps
-        va_dots = np.append(va_dots, [[va_dot]], axis=0)
-
-        #fpa_dot
-        fpa_dot_vec = R @ np.array([[0.0], [0.0], [-1.0]]) #vector pointing up in plane coordinate frame transformed in local frame
-        fpa_dot = project(local_accel/100, fpa_dot_vec)
-        fpa_dots = np.append(fpa_dots, [fpa_dot], axis=0)
-
-        index += 1
-
-    #Thrust:::
-    ACTreader = csv.reader(ActuatorCSV, delimiter=',', quotechar='|')
-    next(ACTreader)  # skip line, we want 4,5,6,7 = q0, q1, q2, q3 attitude quaternion in local inertial frame
     n_ps = np.empty((0, 1))
-    for row in ACTreader:
-        u_t = np.array([float(row[5])])
-        n_p = n_0 + u_t*n_slope
+
+    it = 0  # is there a better way to do this?
+    for index, row in MergedDf.iterrows():
+        # velocity vectors
+        velocities = np.append(velocities, [[row['vx'], row['vy'], row['vz']]], axis=0)
+        # airspeed v_a
+        vas = np.append(vas, [[np.linalg.norm(row['vx':'vz'])]], axis=0)
+
+        # attitude quaternions
+        atts = np.append(atts, [[row['q[0]'], row['q[1]'], row['q[2]'], row['q[3]']]], axis=0)
+        # Rotation Matrix from body fram to local frame
+        R, roll, pitch, yaw = find_rotation(atts[it, :])
+        # flight path angles
+        # yaw = np.arctan2(R[1,0], 1.0-2*(row['q[0]']**2 + row['q[1]']**2)) #atan2(2.0 * (q.q3 * q.q0 + q.q1 * q.q2) , - 1.0 + 2.0 * (q.q0 * q.q0 + q.q1 * q.q1))
+        forward_vector = np.array([1.0 * np.cos(yaw), 1.0 * np.sin(yaw), 0.0])
+        if vas[it] != 0:
+            fpas = np.append(fpas, [[np.arctan2(- row['vz'], project(velocities[it, :], forward_vector))]], axis=0)  # fpa = arcsin(vz/va) in rad
+        else:
+            fpas = np.append(fpas, [[0.0]], axis=0)  # fpa = 0 in rad
+        # alpha
+        alphas = np.append(alphas, [pitch - fpas[it]], axis=0)  # for some reason this gives negative alphas, since for some reason the pitch is always higher than the flight patch angle!
+        # va_dots
+        body_accel = np.array([row['x'], row['y'], row['z']])
+        local_accel = R @ body_accel
+        va_dots = np.append(va_dots, [[project(local_accel / 1000.0, velocities[it, :])]], axis=0)
+        # fpa_dots
+        roll_vec = R @ np.array([[0.0], [-1.0], [0.0]])  # vector pointing along y axis in plane coordinate frame transformed in local frame
+        fpa_dot_vec = np.cross(velocities[it, :], np.transpose(roll_vec)[0])
+        fpa_dots = np.append(fpa_dots, [[project(local_accel /1000, fpa_dot_vec)]], axis=0)
+        # thrust
+        u_t = np.array([float(row['control[3]'])]) #TODO: This might change from setup to setup
+        n_p = n_0 + u_t * n_slope
         n_ps = np.append(n_ps, [n_p], axis=0)
+        # increase counter
+        it += 1
 
     #setup least squares
     # setup least squares for Drag
     y = np.empty((0, 1))
     A = np.empty((0, 2))
     for j in range(fpa_dots.shape[0]):
-        t0 = rho * n_ps[j]**2 * D_p ** 4
+        t0 = rho * n_ps[j]**2 * D_p**4
         denom1 = np.cos(alphas[j]-thrust_incl)*t0
         denom2 = np.sin(alphas[j]-thrust_incl)*t0
         if denom1 == 0.0 or denom2 == 0.0:
             continue
-        D = 0.5*rho*vas[int(round(j / 2))]**2*(CD[0] + CD[1]*alphas[j] + CD[2]*alphas[j]**2)
-        L = 0.5*rho*vas[int(round(j / 2))]**2*(CL[0] + CL[1]*alphas[j])
-        y_j1 = (m * va_dots[j]*g*np.sin(fpas[int(round(j / 2))]) + D)/ denom1 # equation vrom va_dot TODO fix this. dont go by rows but rather by timestamps
-        y_j2 = (m*(fpa_dots[j]*vas[int(round(j / 2))] + g*np.cos(fpas[int(round(j / 2))])) - L)/denom2
-        A_j = np.array([1, (vas[int(round(j / 2))]*np.cos(alphas[j]-thrust_incl)/(D_p * n_ps[j]))[0]])
-        y = np.append(y, [y_j1, y_j2], axis=0)
-        A = np.append(A, [A_j, A_j], axis=0)  # TODO fix this. dont go by rows but rather by timestamps
+        D = 0.5*rho*vas[j]**2*(CD[0] + CD[1]*alphas[j] + CD[2]*alphas[j]**2)
+        L = 0.5*rho*vas[j]**2*(CL[0] + CL[1]*alphas[j])
+        y_j1 = (m * (va_dots[j]+g*np.sin(fpas[j])) + D)/denom1 # equation vrom va_dot
+        y_j2 = (m* (fpa_dots[j]*vas[j] + g*np.cos(fpas[j])) - L)/denom2
+        A_j = np.array([1, (vas[j]*np.cos(alphas[j]-thrust_incl)/(D_p * n_ps[j]))[0]])
+        y = np.append(y, [y_j1], axis=0)
+        A = np.append(A, [A_j], axis=0)
 
     CT = np.linalg.lstsq(A, y, rcond=None)[0]
     print("-------YEY YOU FOUND SOMETHING-------")
-    print(f'Thrust Coefficients: \n  C_t0 is:    {CT[0,0]} \n  C_t1 is:    {CT[1,0]}')
+    print(f'Thrust Coefficients CT: \n '
+          f'  [{CT[0,0]}, {CT[1,0]}]')

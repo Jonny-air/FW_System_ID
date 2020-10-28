@@ -9,13 +9,13 @@ import matplotlib.pyplot as plt
 single_sim = 1
 
 #if single sim these will be used:
-pitch_s = 3 *np.pi/180
-thrust_s = 0.0
+pitch_s = 4 *np.pi/180
+thrust_s = 0.2
 
 #otherwise these will be used
-pitch_start = 0.2
-pitch_end = 0.0
-pitch_step = 0.0
+pitch_start = -5 * np.pi/180
+pitch_end = 2 * np.pi/180
+pitch_step = 0.1 * np.pi/180
 thrust_start = 0.0
 thrust_end = 0.0
 thrust_step = 0.01
@@ -31,9 +31,14 @@ n_0 = 2.39 #rot per second
 n_slope = 184.21 #rot per second input slope from 0-1
 thrust_incl = 0.0 #rad
 D_p = 0.28
-CD = np.array([-0.023616004820951813, -0.0707196273581569, -2.353334838897727])
-CL = np.array([0.48944183370577127, 14.815092813394312])
-CT = np.array([0.115, -0.1326])
+CD = np.array(
+    [0.024198128492773214, 0.2664271480219045, -1.7823456231415864]
+)
+CL = np.array(
+    [0.18271711466591634, 0.5105387076972424]
+)
+CT = np.array(
+    [0.00013044917972654312, 0.0034802339683809845])
 
 
 # 4th Order Runge Kutta Calculation
@@ -59,7 +64,6 @@ def stateDerivative(x, input):
     pitch, u_t = input
     v_a =x[0]
     fpa =x[1]
-    print(fpa)
 
     xdot=np.zeros(2)
 
@@ -90,7 +94,6 @@ def get_ss(pitch, u_t):
     for k in range(0, np.size(t) - 1):
         # Predict state after one time step
         x[1, k] % (2 * np.pi)
-        print(x[1,k])
         x[:, k + 1] = RK4(x[:, k], tstep, input)
 
     ss_va = x[0, np.size(t) - 1]
@@ -99,12 +102,12 @@ def get_ss(pitch, u_t):
 
     # rise time and steady state speed
     for k in range(0, np.size(t) - 1):
-        if abs(x[0, k] - ss_va) < abs(0.1 * ss_va):
+        if abs(x[0, k] - ss_va) < abs(0.9 * ss_va-x[0, 0]):
             rt_va = k * tstep
             break
 
     for k in range(0, np.size(t) - 1):
-        if abs(x[1, k] - ss_fpa) < abs(0.1 * ss_fpa):
+        if abs(x[1, k] - ss_fpa) < abs(0.9 * ss_fpa-x[1, 0]):
             rt_fpa= k * tstep
             break
 
@@ -163,8 +166,17 @@ if __name__ == '__main__':
         get_ss(pitch_s, thrust_s)
     else:
         pitches = np.arange(pitch_start, pitch_end+pitch_step, pitch_step)
-        thrusts = np.arange(thrust_start, thrust_end+thrust_step, thrust_step)
+        #thrusts = np.arange(thrust_start, thrust_end+thrust_step, thrust_step)
+        u_t = 0.2
         steady_states = np.empty((0,6))
         for p in pitches:
-            for t in thrusts:
-                steady_states = np.append(steady_states, [get_ss(p, t)], axis=0)
+                steady_states = np.append(steady_states, [get_ss(p, u_t)], axis=0)
+        plt.figure(1, figsize=(10, 10))
+        plt.plot(steady_states[4, 0:-1]*180/np.pi, steady_states[0, 0:-1]*3.6, 'b', label='v [km/h]')
+        # plt.plot(t[0:-1], x[1, 0:-1] * 180 / np.pi, 'r', label='theta [DEG]')
+        # plt.plot(t[0:-1], x[2, 0:-1]*3.6, 'g', label='w [km/h]')
+        plt.xlabel('Pitch (deg)')
+        plt.ylabel('Steady State Velocity')
+        plt.legend(loc='best')
+        plt.title(f'Steady State Velocity vs pitch angle with thrust input {u_t}')
+        plt.show()

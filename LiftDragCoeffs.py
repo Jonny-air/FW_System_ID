@@ -2,11 +2,11 @@ import numpy as np
 import pandas as pd
 
 #setup
-start_min = 3
-start_sec = 48
-end_min = 4
-end_sec = 12
-log_name = 'log_01'
+start_min = 1
+start_sec = 25.5
+end_min = 1
+end_sec = 45.5
+log_name = 'log_B1'
 
 
 #parameters
@@ -42,6 +42,10 @@ def find_rotation(q):
     cd = q[2]*q[3]
     dd = q[3]*q[3]
 
+    roll = np.arctan2(2*(cd+ab), 1.0-2.0*(bb + cc)) #atan2(2.0 * (d * c + a * b) , 1.0 - 2.0 * (q.q1 * q.q1 + q.q2 * q.q2))
+    pitch = np.arcsin(2*(ac-bd))
+    yaw = np.arctan2(2*(bc+ad), -1.0+2.0*(aa + bb))
+
     R[0,0] = aa+bb-cc-dd
     R[0,1] = 2*(bc-ad)
     R[0,2] = 2*(bd+ac)
@@ -52,7 +56,7 @@ def find_rotation(q):
     R[2,1] = 2*(cd+ab)
     R[2,2] = aa-bb-cc+dd
 
-    return R
+    return R, roll, pitch, yaw
 
 def transform_to_local(vec, q): #vec is a 3x1 vector, q is a 4x1 vector, outputs the transformed 3x1 vector vec_loc
     R = find_rotation(q)
@@ -87,16 +91,15 @@ if __name__ == '__main__':
         # attitude quaternions
         atts = np.append(atts, [[row['q[0]'], row['q[1]'], row['q[2]'], row['q[3]']]], axis=0)
         # Rotation Matrix from body fram to local frame
-        R = find_rotation(atts[it, :])
+        R, roll, pitch, yaw = find_rotation(atts[it, :])
         # flight path angles
-        yaw = np.arctan2(-R[0,1], -1.0+2*(row['q[0]']**2 + row['q[1]']**2)) #arctan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+        #yaw = np.arctan2(R[1,0], 1.0-2*(row['q[0]']**2 + row['q[1]']**2)) #atan2(2.0 * (q.q3 * q.q0 + q.q1 * q.q2) , - 1.0 + 2.0 * (q.q0 * q.q0 + q.q1 * q.q1))
         forward_vector = np.array([1.0*np.cos(yaw), 1.0*np.sin(yaw), 0.0])
         if vas[it] != 0:
             fpas = np.append(fpas, [[np.arctan2(- row['vz'], project(velocities[it, :], forward_vector))]], axis=0)  # fpa = arcsin(vz/va) in rad
         else:
             fpas = np.append(fpas, [[0.0]], axis=0)  # fpa = 0 in rad
         # alpha
-        pitch = np.arcsin(-R[2, 0])
         alphas = np.append(alphas, [pitch - fpas[it]], axis=0)  # for some reason this gives negative alphas, since for some reason the pitch is always higher than the flight patch angle!
         # va_dots
         body_accel = np.array([row['x'], row['y'], row['z']])
@@ -108,12 +111,6 @@ if __name__ == '__main__':
         fpa_dots = np.append(fpa_dots, [[project(local_accel/1000, fpa_dot_vec)]], axis=0)
         # increase counter
         it +=1
-    print(alphas)
-    #checked with flight review to be accurate:
-    # pitch error <0.01deg, vas, velocities(x,y,z) (x points along runway, y to the right and z down)
-    # from pitch = right we can assume attitude = right.
-
-
 
     #setup least squares for Drag
     y = np.empty((0,1))
@@ -135,20 +132,15 @@ if __name__ == '__main__':
             continue
         z_j = 2 * m / (rho * vas[j]**2) *(fpa_dots[j]*vas[j] + g * np.cos(fpas[j]))
         z = np.append(z, [z_j], axis=0)
-        B = np.append(B, [[1.0, alphas[j, 0]]], axis=0)   
+        B = np.append(B, [[1.0, alphas[j, 0]]], axis=0)
 
     CL = np.linalg.lstsq(B,z, rcond=None)[0]
 
     #output
     print("-------YEY YOU FOUND SOMETHING-------")
-    print(f'Lift Coefficients: \n  CLs are:    [{CL[0,0]}, {CL[1,0]}]')
-    print(f'Drag Coefficients: \n  CDs are:    [{CD[0,0]}, {CD[1, 0]}, {CD[2, 0]}]')
+    print(f'Drag Coefficients CD: \n  [{CD[0,0]}, {CD[1, 0]}, {CD[2, 0]}]')
+    print(f'Lift Coefficients CL: \n  [{CL[0, 0]}, {CL[1, 0]}]')
 
-    #TODO:
-    #avoid using heading, use measured airspeed instead of calculating it from v_x and v_y
-    #what topic and units should I use for the acceleration?
-    #compare airspeed log vs what we find here for  airspeed
-    # what topics should I use for accel?
-
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+#checked with flight review to be accurate:
+# pitch, yaw error <0.01deg, vas, velocities(x,y,z) (x points along runway, y to the right and z down)
+# from pitch = right we can assume attitude = right.
