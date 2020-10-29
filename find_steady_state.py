@@ -6,11 +6,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 #Simulation Parameters
-single_sim = 1
+#1 = find steady state for one pitch and thrust
+#2 = draw lift, drag and thrust curves
+single_sim = 2
 
 #if single sim these will be used:
-pitch_s = 4 *np.pi/180
-thrust_s = 0.2
+pitch_s = 2 *np.pi/180
+thrust_s = 0.8
 
 #otherwise these will be used
 pitch_start = -5 * np.pi/180
@@ -26,21 +28,20 @@ simulation_time = 30    # Length of time to run simulation (sec)
 #Variables
 g =9.81
 m = 3.7
-rho = 1.25
+rho = 1.225
 n_0 = 2.39 #rot per second
 n_slope = 184.21 #rot per second input slope from 0-1
 thrust_incl = 0.0 #rad
 D_p = 0.28
 CD = np.array(
-    [0.024198128492773214, 0.2664271480219045, -1.7823456231415864]
+    [0.02652086160037974, 0.16581006194228595, -0.8575806869624077]
 )
 CL = np.array(
-    [0.18271711466591634, 0.5105387076972424]
+    [0.14363326331809678, 1.6261793088854715]
 )
 CT = np.array(
-    [0.00013044917972654312, 0.0034802339683809845])
-
-
+    [0.0038295818520629535, -0.022978073123561385]
+)
 # 4th Order Runge Kutta Calculation
 def RK4(x, dt, input):
     # Inputs: x[k], u[k], dt (time step, seconds)
@@ -102,16 +103,16 @@ def get_ss(pitch, u_t):
 
     # rise time and steady state speed
     for k in range(0, np.size(t) - 1):
-        if abs(x[0, k] - ss_va) < abs(0.9 * ss_va-x[0, 0]):
+        if abs(x[0, k] - ss_va) < abs(0.1 * (ss_va - x[0, 0])):
             rt_va = k * tstep
             break
 
     for k in range(0, np.size(t) - 1):
-        if abs(x[1, k] - ss_fpa) < abs(0.9 * ss_fpa-x[1, 0]):
+        if abs(x[1, k] - ss_fpa) < abs(0.1 * (ss_fpa - x[1, 0])):
             rt_fpa= k * tstep
             break
 
-    if single_sim:
+    if single_sim == 1:
         plt.figure(1, figsize=(10, 10))
         plt.plot(t[0:-1], x[0, 0:-1], 'b', label='v_a [m/s]')
         plt.plot(t[0:-1], x[1, 0:-1] * 180 / np.pi, 'r', label='fpa [DEG]')
@@ -162,9 +163,9 @@ plt.show()
 '''
 
 if __name__ == '__main__':
-    if single_sim:
+    if single_sim == 1:
         get_ss(pitch_s, thrust_s)
-    else:
+    elif single_sim == 0 :
         pitches = np.arange(pitch_start, pitch_end+pitch_step, pitch_step)
         #thrusts = np.arange(thrust_start, thrust_end+thrust_step, thrust_step)
         u_t = 0.2
@@ -179,4 +180,40 @@ if __name__ == '__main__':
         plt.ylabel('Steady State Velocity')
         plt.legend(loc='best')
         plt.title(f'Steady State Velocity vs pitch angle with thrust input {u_t}')
+        plt.show()
+    elif single_sim == 2:
+        alpha_start = -3*np.pi/180
+        alpha_end = 10*np.pi/180
+        alpha_step = 0.1 * np.pi/180
+        L = np.empty((0, 2))
+        D = np.empty((0, 2))
+        T = np.empty((0, 2))
+        v_a = 14
+        for alpha in np.arange(alpha_start, alpha_end, alpha_step):
+            L = np.append(L, [[(CL[0] + CL[1] * alpha), alpha]], axis = 0)
+            D = np.append(D, [[(CD[0] + CD[1] * alpha + CD[2] * alpha ** 2), alpha]], axis = 0)
+        for n_p in np.arange(n_0, n_0+n_slope, 0.01):
+            T = np.append(T, [[rho * n_p ** 2 * D_p ** 4 * (CT[0] + CT[1] * v_a * np.cos(alpha - thrust_incl) / (n_p * D_p)), n_p]], axis=0)
+
+        #Lift
+        plt.figure(1, figsize=(10, 10))
+        plt.plot(L[0:-1,1]* 180 / np.pi, L[0:-1, 0], 'b', label='Lift')
+        plt.plot(D[0:-1, 1]* 180 / np.pi, D[0:-1, 0], 'r', label='Drag')
+
+        plt.xlabel('Angle of Attack in Degrees')
+        plt.ylabel('Lift/Drag Coefficients [m^2]')
+        plt.legend(loc='best')
+        plt.title(f'Lift and Drag Coefficients (incl. surface area) depending on AoA')
+        plt.grid()
+        plt.show()
+
+        #Thrust
+        plt.figure(1, figsize=(10, 10))
+        plt.plot(T[0:-1, 1], T[0:-1, 0], 'b', label='Thrust')
+
+        plt.xlabel('Propeller speed [rotations/sec]')
+        plt.ylabel('Thrust [N]')
+        plt.legend(loc='best')
+        plt.title(f'Thrust force depending on propeller speed at velocity {v_a}m/s')
+        plt.grid()
         plt.show()

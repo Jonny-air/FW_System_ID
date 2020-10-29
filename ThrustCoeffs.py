@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 #setup
 start_min = 1
@@ -11,16 +12,16 @@ log_name = 'log_B2'
 #parameters
 g =9.81
 m = 3.7
-rho = 1.25
+rho = 1.225
 n_0 = 15.03 #radps
 n_slope = 985
 thrust_incl = 0.0 #rad
 D_p = 0.28
 CD = np.array(
-    [0.024198128492773214, 0.2664271480219045, -1.7823456231415864]
+    [0.02652086160037974, 0.16581006194228595, -0.8575806869624077]
 )
 CL = np.array(
-    [0.18271711466591634, 0.5105387076972424]
+    [0.14363326331809678, 1.6261793088854715]
 )
 
 #setup behind the curtains
@@ -91,6 +92,7 @@ if __name__ == '__main__':
     va_dots = np.empty((0, 1))
     fpa_dots = np.empty((0, 1))
     n_ps = np.empty((0, 1))
+    x_dots = np.empty((0, 3))
 
     it = 0  # is there a better way to do this?
     for index, row in MergedDf.iterrows():
@@ -125,6 +127,7 @@ if __name__ == '__main__':
         n_p = n_0 + u_t * n_slope
         n_ps = np.append(n_ps, [n_p], axis=0)
         # increase counter
+        x_dots = np.append(x_dots, [[va_dots[it], fpa_dots[it], it]], axis=0)
         it += 1
 
     #setup least squares
@@ -137,10 +140,10 @@ if __name__ == '__main__':
         denom2 = np.sin(alphas[j]-thrust_incl)*t0
         if denom1 == 0.0 or denom2 == 0.0:
             continue
-        D = 0.5*rho*vas[j]**2*(CD[0] + CD[1]*alphas[j] + CD[2]*alphas[j]**2)
-        L = 0.5*rho*vas[j]**2*(CL[0] + CL[1]*alphas[j])
-        y_j1 = (m * (va_dots[j]+g*np.sin(fpas[j])) + D)/denom1 # equation vrom va_dot
-        y_j2 = (m* (fpa_dots[j]*vas[j] + g*np.cos(fpas[j])) - L)/denom2
+        L = 0.5 * rho * vas[j] ** 2 * (CL[0] + CL[1] * alphas[j])
+        D = 0.5 * rho * vas[j] ** 2 * (CD[0] + CD[1] * alphas[j] + CD[2] * alphas[j] ** 2)
+        y_j1 = (m * (va_dots[j]+g*np.sin(fpas[j])) + D)/denom1                 # equation from va_dot
+        y_j2 = (m* (fpa_dots[j] + g*np.cos(fpas[j])) - L)/denom2               #don't use, since alphas are very small and introduce error
         A_j = np.array([1, (vas[j]*np.cos(alphas[j]-thrust_incl)/(D_p * n_ps[j]))[0]])
         y = np.append(y, [y_j1], axis=0)
         A = np.append(A, [A_j], axis=0)
@@ -149,3 +152,30 @@ if __name__ == '__main__':
     print("-------YEY YOU FOUND SOMETHING-------")
     print(f'Thrust Coefficients CT: \n '
           f'  [{CT[0,0]}, {CT[1,0]}]')
+
+    x_dot_pred = np.empty((0, 2))  # v_a_dot, fpa_dot, t
+    for j in range(fpa_dots.shape[0]):
+        L = 0.5 * rho * vas[j] ** 2 * (CL[0] + CL[1] * alphas[j])
+        D = 0.5 * rho * vas[j] ** 2 * (CD[0] + CD[1] * alphas[j] + CD[2] * alphas[j] ** 2)
+        T = rho * n_ps[j] ** 2 * D_p ** 4 * (CT[0] + CT[1] * vas[j] * np.cos(alphas[j] - thrust_incl) / (n_ps[j] * D_p))
+        pred_va_dot = 1/m*(T*np.cos(alphas[j]-thrust_incl)-D)-g*np.sin(fpas[j])
+        pred_fpa_dot = 1/(m)*((T*np.sin(alphas[j]-thrust_incl)+L)-m*g*np.cos(fpas[j]))
+        x_dot_pred = np.append(x_dot_pred, [[pred_va_dot[0], pred_fpa_dot[0]]], axis=0)
+
+    fig, axs = plt.subplots(2)
+
+    # plt.figure(1, figsize=(10, 10))
+    axs[0].plot(x_dots[0:-1, 2], x_dots[0:-1, 0], 'b', label='Actual va_dot')
+    axs[1].plot(x_dots[0:-1, 2], x_dots[0:-1, 1] * 180 / np.pi, 'g', label='Actual fpa_dot')
+    axs[0].plot(x_dots[0:-1, 2], x_dot_pred[0:-1, 0], 'r', label='Predicted va_dot')
+    axs[1].plot(x_dots[0:-1, 2], x_dot_pred[0:-1, 1] * 180 / np.pi, 'm', label='Predicted fpa_dot')
+
+    axs[0].set_xlabel('Datapoints')
+    axs[1].set_xlabel('Datapoints')
+    axs[0].set_ylabel('va [m/s]')
+    axs[1].set_ylabel('fpa [deg]')
+    axs[0].set_title(f'Comparison predicted vs actual derivatives')
+    axs[0].grid()
+    axs[0].legend(loc='best')
+    axs[1].legend(loc='best')
+    plt.show()
