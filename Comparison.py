@@ -11,7 +11,7 @@ log_name = 'log_B2'
 
 #parameters
 g =9.81
-m = 3.7
+m = 3.204
 rho = 1.225
 n_0 = 15.03 #radps
 n_slope = 985

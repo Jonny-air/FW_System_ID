@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 single_sim = 2
 
 #if single sim these will be used:
-pitch_s = 2 *np.pi/180
-thrust_s = 0.8
+pitch_s = 4 *np.pi/180
+thrust_s = 0.7
 
 #otherwise these will be used
 pitch_start = -5 * np.pi/180
@@ -34,13 +34,13 @@ n_slope = 184.21 #rot per second input slope from 0-1
 thrust_incl = 0.0 #rad
 D_p = 0.28
 CD = np.array(
-    [0.02652086160037974, 0.16581006194228595, -0.8575806869624077]
+    [0.02610137713973211, 0.2564920094757343, 0.04384244202737106]
 )
 CL = np.array(
-    [0.14363326331809678, 1.6261793088854715]
+    [0.10424409372189058, 2.014436703100506]
 )
 CT = np.array(
-    [0.0038295818520629535, -0.022978073123561385]
+    [0.09187314079095107, -0.4605547261249235]
 )
 # 4th Order Runge Kutta Calculation
 def RK4(x, dt, input):
@@ -182,7 +182,7 @@ if __name__ == '__main__':
         plt.title(f'Steady State Velocity vs pitch angle with thrust input {u_t}')
         plt.show()
     elif single_sim == 2:
-        alpha_start = -3*np.pi/180
+        alpha_start = -5*np.pi/180
         alpha_end = 10*np.pi/180
         alpha_step = 0.1 * np.pi/180
         L = np.empty((0, 2))
