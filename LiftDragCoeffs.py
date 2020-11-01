@@ -9,7 +9,7 @@ end_min = 2
 end_sec = 3
 log_name = 'log_B1'
 state_level = 0
-show_plots = 0
+show_plots = 1
 
 # start_min = 1
 # start_sec = 25.5

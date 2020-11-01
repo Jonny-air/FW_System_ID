@@ -20,9 +20,9 @@ n_0 = 15.03 #radps
 n_slope = 985
 thrust_incl = 0.0 #rad
 D_p = 0.28
-n_props = 2
+
 CD = np.array(
-    [0.02697635475641432, 0.2328666767791942, 0.18664156540313911]
+    [0.0603, 0.34728666767791942, 0.2599156540313911]
 )
 CL = np.array(
     [0.10723261045844895, 1.9946490526929737]
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     A = np.empty((0, 2))
     datapoints = np.empty((0, 3))
     for j in range(fpa_dots.shape[0]):
-        t0 = rho * n_ps[j]**2 * n_props * D_p**4
+        t0 = rho * n_ps[j]**2 * D_p**4
         denom1 = np.cos(alphas[j]-thrust_incl)*t0
         # denom2 = np.sin(alphas[j]-thrust_incl)*t0
         if n_ps[j] < 100: #discard low prop speeds where drag inaccurcy is too high
@@ -155,7 +155,7 @@ if __name__ == '__main__':
         D = 0.5 * rho * vas[j] ** 2 * (CD[0] + CD[1] * alphas[j] + CD[2] * alphas[j] ** 2)
         y_j1 = (m * (va_dots[j]  + g*np.sin(fpas[j])) + D) / denom1                 # equation from va_dot
         # y_j2 = (m * (fpa_dots[j] + g*np.cos(fpas[j])) - L) / denom2               #don't use, since alphas are very small and introduce error
-        A_j = np.array([1.0, (vas[j]*np.cos(alphas[j]-thrust_incl)/(n_props * D_p * n_ps[j]))[0]])
+        A_j = np.array([1.0, (vas[j]*np.cos(alphas[j]-thrust_incl)/(D_p * n_ps[j]))[0]])
         y = np.append(y, [y_j1], axis=0)
         datapoints = np.append(datapoints, [[y_j1[0], n_ps[j], vas[j]]], axis=0)
         A = np.append(A, [A_j], axis=0)
@@ -170,7 +170,7 @@ if __name__ == '__main__':
     for j in range(fpa_dots.shape[0]):
         L = 0.5 * rho * vas[j] ** 2 * (CL[0] + CL[1] * alphas[j])
         D = 0.5 * rho * vas[j] ** 2 * (CD[0] + CD[1] * alphas[j] + CD[2] * alphas[j] ** 2)
-        T = rho * n_ps[j] ** 2 * n_props * D_p ** 4 * (CT[0] + CT[1] * vas[j] * np.cos(alphas[j] - thrust_incl) / (n_ps[j] * n_props * D_p))
+        T = rho * n_ps[j] ** 2 * D_p ** 4 * (CT[0] + CT[1] * vas[j] * np.cos(alphas[j] - thrust_incl) / (n_ps[j] * D_p))
 
         pred_va_dot =  1/m* (T*np.cos(alphas[j]-thrust_incl) -D)   -g*np.sin(fpas[j])
         pred_fpa_dot = 1/m *(T*np.sin(alphas[j]-thrust_incl) +L)   -g*np.cos(fpas[j])
@@ -208,7 +208,7 @@ if __name__ == '__main__':
     n_p = np.arange(n_0, n_0 + n_slope, 15)
     v_a = np.arange(0, 30, 1)
     n_p, v_a = np.meshgrid(n_p, v_a)
-    T = (CT[0] + CT[1] * v_a * np.cos(alpha - thrust_incl) / (n_p * n_props*D_p))
+    T = (CT[0] + CT[1] * v_a * np.cos(alpha - thrust_incl) / (n_p *D_p))
 
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection='3d')

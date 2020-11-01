@@ -27,7 +27,7 @@ simulation_time = 30    # Length of time to run simulation (sec)
 
 #Variables
 g =9.81
-m = 3.7
+m = 3.204
 rho = 1.225
 n_0 = 2.39 #rot per second
 n_slope = 184.21 #rot per second input slope from 0-1
