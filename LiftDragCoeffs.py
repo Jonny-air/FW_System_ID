@@ -212,6 +212,7 @@ if __name__ == '__main__':
         ax1.plot((alphas[0:-1])*180 / np.pi, z[0:-1, 0], '-x', label='Lift Datapoints')
         plt.figtext(.7, .75, f"Residual = {round(res2[0],5)}")
         ax2.plot(D[0:-1, 1] * 180 / np.pi, D[0:-1, 0], 'r', label='Drag')
+        ax2.plot(D[0:-1, 1] * 180 / np.pi, L[0:-1, 0]/D[0:-1, 0], 'g', label='Lift/Drag')
         ax2.plot((alphas[0:-1]) * 180 / np.pi, y[0:-1, 0], '-x', label='Drag Datapoints')
         plt.figtext(.7, .26, f"Residual = {round(res1[0],5)}")
 
