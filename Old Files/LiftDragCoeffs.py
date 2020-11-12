@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 
 #setup
 start_min = 1
-start_sec = 43
-end_min = 2
-end_sec = 3
-log_name = 'log_B1'
+start_sec = 1
+end_min = 1
+end_sec = 40
+log_name = 'log_B3'
 state_level = 0
 show_plots = 1
 
@@ -19,7 +19,7 @@ show_plots = 1
 
 
 #parameters
-g =9.81
+g =9.80
 m = 3.204
 rho = 1.225
 
@@ -213,7 +213,6 @@ if __name__ == '__main__':
         plt.figtext(.7, .75, f"Residual = {round(res2[0],5)}")
         ax2.plot(D[0:-1, 1] * 180 / np.pi, D[0:-1, 0], 'r', label='Drag')
         ax2.plot(D[0:-1, 1] * 180 / np.pi, L[0:-1, 0]/D[0:-1, 0], 'g', label='Lift/Drag')
-        ax2.plot((alphas[0:-1]) * 180 / np.pi, y[0:-1, 0], '-x', label='Drag Datapoints')
         plt.figtext(.7, .26, f"Residual = {round(res1[0],5)}")
 
         ax1.set_xlabel('Angle of Attack in Degrees')

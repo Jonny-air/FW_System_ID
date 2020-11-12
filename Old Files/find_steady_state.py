@@ -26,7 +26,7 @@ tstep = 0.02            # Sampling time (sec)
 simulation_time = 30    # Length of time to run simulation (sec)
 
 #Variables
-g =9.81
+g =9.80
 m = 3.204
 rho = 1.225
 n_0 = 2.39 #rot per second
@@ -40,7 +40,7 @@ CL = np.array(
     [0.10424409372189058, 2.014436703100506]
 )
 CT = np.array(
-    [0.09187314079095107, -0.4605547261249235]
+    [0.09895832996700533, -0.08636668275798876]
 )
 # 4th Order Runge Kutta Calculation
 def RK4(x, dt, input):

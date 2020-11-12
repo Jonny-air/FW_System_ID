@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.optimize import least_squares
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.ndimage import median_filter
 
 #setup
 start_min = 3
@@ -11,30 +13,35 @@ end_sec = 5
 log_name = 'log_BT2'
 state_level = 0
 show_plots = 0
+filter_alpha = True
+
+
 
 #parameters
-g =9.81
+g =9.80
 m = 3.204
 rho = 1.225
-n_0 = 15.03 #radps
-n_slope = 985
+n_0 = 15.00/(2*np.pi)   #rotps
+n_slope = 985/(2*np.pi) #rotps
 thrust_incl = 0.0 #rad
 D_p = 0.28
 
-CD = np.array(
-    [0.0603, 0.34728666767791942, 0.2599156540313911]
-)
-CL = np.array(
-    [0.10723261045844895, 1.9946490526929737]
-)
+# CD = np.array(
+#     [0.026871082831117384, 0.18575809516924544, 0.6866415654031391]
+# )
+# CL = np.array(
+#     [0.10678183352119403, 1.8826298036731293]
+# )
+CD = np.array([0.02369842, 0.07307902, 0.68664157])
+CL = np.array([0.11768223, 1.51342619])
 
 #setup behind the curtains
 start_time = start_min*60+start_sec
 end_time = end_min*60+end_sec
-AttitudeDF = pd.read_csv(f'./IDFILES/{log_name}_vehicle_attitude_0.csv', index_col=0, usecols=[0, 4, 5, 6, 7])
-PosDF = pd.read_csv(f'./IDFILES/{log_name}_vehicle_local_position_0.csv', index_col=0, usecols=[0, 10, 11, 12])
-AccelDF = pd.read_csv(f'./IDFILES/{log_name}_sensor_accel_0.csv', index_col=0, usecols=[0, 3, 4, 5])
-ActuatorDF = pd.read_csv(f'./IDFILES/{log_name}_actuator_controls_0_0.csv', index_col=0, usecols=[0, 5])
+AttitudeDF = pd.read_csv(f'./csv/{log_name}_vehicle_attitude_0.csv', index_col=0, usecols=[0, 4, 5, 6, 7])
+PosDF = pd.read_csv(f'./csv/{log_name}_vehicle_local_position_0.csv', index_col=0, usecols=[0, 10, 11, 12])
+AccelDF = pd.read_csv(f'./csv/{log_name}_sensor_accel_0.csv', index_col=0, usecols=[0, 3, 4, 5])
+ActuatorDF = pd.read_csv(f'./csv/{log_name}_actuator_controls_0_0.csv', index_col=0, usecols=[0, 5])
 
 MergedDf = pd.merge_asof(PosDF, AttitudeDF, left_index=True, right_index=True)
 MergedDf = pd.merge_asof(MergedDf, AccelDF, left_index=True, right_index=True)
@@ -137,52 +144,73 @@ if __name__ == '__main__':
         n_p = n_0 + u_t * n_slope
         n_ps = np.append(n_ps, [[n_p]], axis=0)
         # increase counter
-        x_dots = np.append(x_dots, [[va_dots[it], fpa_dots[it], it]], axis=0)
         it += 1
+    print(fpa_dots)
+
+    if filter_alpha:
+        # median filter
+        median_filter(alphas, size=(7, 1), output=alphas)
 
     #setup least squares
-    # setup least squares for Drag
-    y = np.empty((0, 1))
-    A = np.empty((0, 2))
-    datapoints = np.empty((0, 3))
-    for j in range(fpa_dots.shape[0]):
-        t0 = rho * n_ps[j]**2 * D_p**4
-        denom1 = np.cos(alphas[j]-thrust_incl)*t0
-        # denom2 = np.sin(alphas[j]-thrust_incl)*t0
-        if n_ps[j] < 100: #discard low prop speeds where drag inaccurcy is too high
-            continue
-        # L = 0.5 * rho * vas[j] ** 2 * (CL[0] + CL[1] * alphas[j])
-        D = 0.5 * rho * vas[j] ** 2 * (CD[0] + CD[1] * alphas[j] + CD[2] * alphas[j] ** 2)
-        y_j1 = (m * (va_dots[j]  + g*np.sin(fpas[j])) + D) / denom1                 # equation from va_dot
-        # y_j2 = (m * (fpa_dots[j] + g*np.cos(fpas[j])) - L) / denom2               #don't use, since alphas are very small and introduce error
-        A_j = np.array([1.0, (vas[j]*np.cos(alphas[j]-thrust_incl)/(D_p * n_ps[j]))[0]])
-        y = np.append(y, [y_j1], axis=0)
-        datapoints = np.append(datapoints, [[y_j1[0], n_ps[j], vas[j]]], axis=0)
-        A = np.append(A, [A_j], axis=0)
-    print(y)
+    def Thrust_func(CT):
+        T = rho*n_ps**2*D_p**4*( CT[0] + CT[1] * vas*np.cos(alphas-thrust_incl)/(D_p * n_ps))
+        D = 0.5 * rho * vas ** 2 * (CD[0] + CD[1] * alphas + CD[2] * alphas ** 2)
+        err = -va_dots + 1 / m *(T*np.cos(alphas - thrust_incl) -D) - g * np.sin(fpas)
+        #weigh datapoints around normal operation point heavier
+        err *= np.cos((n_ps-100)*0.0125) #a difference of 80 equals to 0.7 weight
+        return err.transpose()[0]
 
-    CT, res3 = np.linalg.lstsq(A, y, rcond=None)[0:2]
+    D = 0.5 * rho * vas ** 2 * (CD[0] + CD[1] * alphas + CD[2] * alphas ** 2)
+    t0 = rho * n_ps ** 2 * D_p ** 4
+    denom1 = np.cos(alphas-thrust_incl)*t0
+    datapoints = (m * (va_dots  + g*np.sin(fpas)) + D) / denom1
+
+    start_CT = np.array([0.20245296276934735, -0.2993443648040376])
+    sol = least_squares(Thrust_func, start_CT, loss="cauchy", f_scale=1.0, bounds=((-3, -3), (3, 3)))
+    CT = sol.x
+    res3 = sol.cost
+
+
+
+    # y = np.empty((0, 1))
+    # A = np.empty((0, 2))
+    # datapoints = np.empty((0, 3))
+    # for j in range(fpa_dots.shape[0]):
+    #     t0 = rho * n_ps[j]**2 * D_p**4
+    #     denom1 = np.cos(alphas[j]-thrust_incl)*t0
+    #     # denom2 = np.sin(alphas[j]-thrust_incl)*t0
+    #     if n_ps[j] < 20: #discard low prop speeds where drag inaccurcy is too high
+    #         continue
+    #     # L = 0.5 * rho * vas[j] ** 2 * (CL[0] + CL[1] * alphas[j])
+    #     D = 0.5 * rho * vas[j] ** 2 * (CD[0] + CD[1] * alphas[j] + CD[2] * alphas[j] ** 2)
+    #     y_j1 = (m * (va_dots[j]  + g*np.sin(fpas[j])) + D) / denom1                 # equation from va_dot
+    #     # y_j2 = (m * (fpa_dots[j] + g*np.cos(fpas[j])) - L) / denom2               #don't use, since alphas are very small and introduce error
+    #     A_j = np.array([1.0, (vas[j]*np.cos(alphas[j]-thrust_incl)/(D_p * n_ps[j]))[0]])
+    #     y = np.append(y, [y_j1], axis=0)
+    #     datapoints = np.append(datapoints, [[y_j1[0], n_ps[j], vas[j]]], axis=0)
+    #     A = np.append(A, [A_j], axis=0)
+    #
+    # CT, res3 = np.linalg.lstsq(A, y, rcond=None)[0:2]
     print("-------YEY YOU FOUND SOMETHING-------")
     print(f'Thrust Coefficients CT: \n '
-          f'  [{CT[0,0]}, {CT[1,0]}]')
+          f'  [{CT[0]}, {CT[1]}]')
 
-    x_dot_pred = np.empty((0, 2))  # v_a_dot, fpa_dot, t
-    for j in range(fpa_dots.shape[0]):
-        L = 0.5 * rho * vas[j] ** 2 * (CL[0] + CL[1] * alphas[j])
-        D = 0.5 * rho * vas[j] ** 2 * (CD[0] + CD[1] * alphas[j] + CD[2] * alphas[j] ** 2)
-        T = rho * n_ps[j] ** 2 * D_p ** 4 * (CT[0] + CT[1] * vas[j] * np.cos(alphas[j] - thrust_incl) / (n_ps[j] * D_p))
+    L = 0.5 * rho * vas ** 2 * (CL[0] + CL[1] * alphas)
+    D = 0.5 * rho * vas ** 2 * (CD[0] + CD[1] * alphas + CD[2] * alphas ** 2)
+    T = rho * n_ps ** 2 * D_p ** 4 * (CT[0] + CT[1] * vas * np.cos(alphas - thrust_incl) / (n_ps * D_p))
 
-        pred_va_dot =  1/m* (T*np.cos(alphas[j]-thrust_incl) -D)   -g*np.sin(fpas[j])
-        pred_fpa_dot = 1/m *(T*np.sin(alphas[j]-thrust_incl) +L)   -g*np.cos(fpas[j])
-        x_dot_pred = np.append(x_dot_pred, [[pred_va_dot[0], pred_fpa_dot[0]]], axis=0)
+    pred_va_dot =  1/m* (T*np.cos(alphas-thrust_incl) -D)   -g*np.sin(fpas)
+    pred_fpa_dot = 1/m *(T*np.sin(alphas-thrust_incl) +L)*np.cos(rolls)  -g*np.cos(fpas)
+
 
     fig, axs = plt.subplots(2)
+    t = range(1, fpas.shape[0], 1)
 
     # plt.figure(1, figsize=(10, 10))
-    axs[0].plot(x_dots[0:-1, 2], x_dots[0:-1, 0], 'b', label='Actual va_dot')
-    axs[1].plot(x_dots[0:-1, 2], x_dots[0:-1, 1], 'g', label='Actual fpa_dot')
-    axs[0].plot(x_dots[0:-1, 2], x_dot_pred[0:-1, 0], 'r', label='Predicted va_dot')
-    axs[1].plot(x_dots[0:-1, 2], x_dot_pred[0:-1, 1], 'm', label='Predicted fpa_dot')
+    axs[0].plot(t, va_dots[0:-1], 'b', label='Actual va_dot')
+    axs[1].plot(t, fpa_dots[0:-1], 'g', label='Actual fpa_dot')
+    axs[0].plot(t, pred_va_dot[0:-1], 'r', label='Predicted va_dot')
+    axs[1].plot(t, pred_fpa_dot[0:-1], 'm', label='Predicted fpa_dot')
 
     axs[0].set_xlabel('Datapoints')
     axs[1].set_xlabel('Datapoints')
@@ -194,28 +222,20 @@ if __name__ == '__main__':
     axs[1].legend(loc='best')
     plt.show()
 
-    # Lift/Drag?Thrust Coefficients Plot
-    alpha_start = -5 * np.pi / 180
-    alpha_end = 10 * np.pi / 180
-    alpha_step = 0.1 * np.pi / 180
-    L = np.empty((0, 2))
-    D = np.empty((0, 2))
-    T = np.empty((0, 3))
-    for alpha in np.arange(alpha_start, alpha_end, alpha_step):
-        L = np.append(L, [[(CL[0] + CL[1] * alpha), alpha]], axis=0)
-        D = np.append(D, [[(CD[0] + CD[1] * alpha + CD[2] * alpha ** 2), alpha]], axis=0)
-
+    #Thrust Coefficients Plot
     n_p = np.arange(n_0, n_0 + n_slope, 15)
-    v_a = np.arange(0, 30, 1)
-    n_p, v_a = np.meshgrid(n_p, v_a)
-    T = (CT[0] + CT[1] * v_a * np.cos(alpha - thrust_incl) / (n_p *D_p))
+    inflow = np.arange(0, 30, 1)
+    n_p, inflow = np.meshgrid(n_p, inflow)
+    T = (CT[0] + CT[1] * inflow / (n_p *D_p))
+    T = (CT[0] + CT[1] * inflow / (n_p *D_p))
+    data_inflows = vas*np.cos(alphas-thrust_incl)
 
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection='3d')
-    ax.plot_wireframe(n_p, v_a, T, color='green')
-    ax.scatter(datapoints[0:-1,1], datapoints[0:-1,2], datapoints[0:-1,0], zdir ='z', s =10)
-    ax.set_xlabel('n_p in rad/sec')
-    ax.set_ylabel('airspeed in m/s')
+    ax.plot_wireframe(n_p, inflow, T, color='green')
+    ax.scatter(n_ps[0:-1], data_inflows[0:-1], datapoints[0:-1], zdir ='z', s =10)
+    ax.set_xlabel('n_p in rot/sec')
+    ax.set_ylabel('inflow va*cos(alpha-thrust_incl) in m/s')
     ax.set_zlabel('Combined Thrust coeficient [1]')
     ax.set_zlim(-0.3,0.1)
     plt.show()
