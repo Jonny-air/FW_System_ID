@@ -9,22 +9,23 @@ import matplotlib.pyplot as plt
 from Convert_Log import convert
 
 #Log Parameters
-model_name = "Believer_201112_true" #<name>_<committdateYYMMDD>_<statelevel=true,false>
-log_name = 'log_3'
-log_type = 1      #0 = Lift/Drag, 1 = Throttle , 2 = Evaluation Data
+model_name = "EasyGlider3_210119_false" #<name>log_name_<committdateYYMMDD>_<statelevel=true,false>
+log_name = 'sysid_ezg3_19012021'
+log_type = 1    #0 = Lift/Drag, 1 = Throttle , 2 = Evaluation Data
 log_location = './log'
 # state_level = False   # is obtained from model parameters
 filter_alpha = 1        # 0 no filter, 1 median filter (recommended), 2 moving average filter
 filter_size = 7         # recommend 7 for median filter
-ramp_type = 0           #0 manual ramp (or throttle), 1 elevator ramp, 2 pitch ramp
-start_min = 1
-start_sec = 55
-end_min = 2
-end_sec = 35
+ramp_type = 0        #0 manual ramp (or throttle), 1 elevator ramp, 2 pitch ramp
+start_min = 9
+start_sec = 35
+end_min = 9
+end_sec = 48
 
 #Other Setup Parameters
+override_logs = True
 verbose = True
-show_plots = True
+show_plots = False
 rho = 1.225
 g = 9.80
 
@@ -35,7 +36,7 @@ def add_log(verbose, show_plots):
     end_time = end_min * 60 + end_sec
 
     #get parameters
-    [m, n_0, n_slope, thrust_incl, D_p, actuator_control_ch, state_level] = get_params(model_name, verbose)
+    [m, n_0, n_slope, thrust_incl, D_p, actuator_control_ch, elev_control_ch, state_level] = get_params(model_name, verbose)
     # import log to dataframe
     if not os.path.isfile(f'./csv/{log_name}_vehicle_attitude_0.csv'):
         if verbose: print("Converting from ulog to csv...")
@@ -47,9 +48,9 @@ def add_log(verbose, show_plots):
     MergedDf = pd.merge_asof(PosDF, AttitudeDF, left_index=True, right_index=True)
     MergedDf = pd.merge_asof(MergedDf, AccelDF, left_index=True, right_index=True)
 
-    if log_type == 1 or log_type == 2:
-        ActuatorDF = pd.read_csv(f'./csv/{log_name}_actuator_controls_0_0.csv', index_col=0, usecols=[0, 2, 3, 4, 5, 6, 7, 8, 9])
-        MergedDf = pd.merge_asof(MergedDf, ActuatorDF, left_index=True, right_index=True)
+    # if log_type == 1 or log_type == 2:
+    ActuatorDF = pd.read_csv(f'./csv/{log_name}_actuator_controls_0_0.csv', index_col=0, usecols=[0, 2, 3, 4, 5, 6, 7, 8, 9])
+    MergedDf = pd.merge_asof(MergedDf, ActuatorDF, left_index=True, right_index=True)
 
     # only take lines we want
     MergedDf = MergedDf.query(f'timestamp >= {start_time * 1.0E6} and timestamp <= {end_time * 1.0E6}')
@@ -62,6 +63,8 @@ def add_log(verbose, show_plots):
     alphas = np.empty((0, 1))
     va_dots = np.empty((0, 1))
     fpa_dots = np.empty((0, 1))
+    pitches = np.empty((0,1))
+    elevs = np.empty((0, 1))
     if log_type == 1 or log_type == 2:
         n_ps = np.empty((0, 1))
 
@@ -74,6 +77,8 @@ def add_log(verbose, show_plots):
         atts = np.append(atts, [[row['q[0]'], row['q[1]'], row['q[2]'], row['q[3]']]], axis=0)
         # Rotation Matrix from body fram to local frame
         R, roll, pitch, yaw = find_rotation(atts[it, :])
+        pitches = np.append(pitches, [[pitch]], axis=0)
+        elevs = np.append(elevs, [[float(row[f'control[{elev_control_ch}]'])]], axis=0)
         rolls = np.append(rolls, [[roll]], axis=0)
         forward_vector = np.array([1.0 * np.cos(yaw), 1.0 * np.sin(yaw), 0.0])
         right_vector = np.array([-1.0 * np.sin(yaw), 1.0 * np.cos(yaw), 0.0])
@@ -148,11 +153,11 @@ def add_log(verbose, show_plots):
     # check if model already exists
 
     if log_type == 1 or log_type == 2:
-        newdata = np.column_stack((vas, va_dots, fpas, fpa_dots, alphas, rolls, n_ps))
-        newDF = pd.DataFrame(data=newdata, columns=["vas", "va_dots", "fpas", "fpa_dots", "alphas", "rolls", "n_ps"])
+        newdata = np.column_stack((vas, va_dots, fpas, fpa_dots, alphas, rolls, pitches, elevs, n_ps))
+        newDF = pd.DataFrame(data=newdata, columns=["vas", "va_dots", "fpas", "fpa_dots", "alphas", "rolls", "pitches", "elevs", "n_ps"])
     else:
-        newdata = np.column_stack((vas, va_dots, fpas, fpa_dots, alphas, rolls))
-        newDF = pd.DataFrame(data=newdata, columns=["vas", "va_dots", "fpas", "fpa_dots", "alphas", "rolls"])
+        newdata = np.column_stack((vas, va_dots, fpas, fpa_dots, alphas, rolls, pitches, elevs))
+        newDF = pd.DataFrame(data=newdata, columns=["vas", "va_dots", "fpas", "fpa_dots", "alphas", "rolls", "pitches", "elevs"])
     # add some additional information for later reference
     newDF["ramp_types"] = ramp_type
     newDF["log_names"] = log_name
@@ -160,10 +165,15 @@ def add_log(verbose, show_plots):
     if os.path.isfile(csv_path):
         print("Trying to append to existing csv")
         # import existing csv to dataframe
-        oldDF = pd.read_csv(csv_path)
-        if oldDF.isin([f'{log_name}']).any().any():
-            print("[ERROR] A log with this name was already added")
-            return  0
+        oldDF = pd.read_csv(csv_path, index_col=0)
+        # if oldDF.isin([f'{log_name}']).any().any():
+        #     if not override_logs:
+        #         print("[ERROR] A log with this name was already added")
+        #         return  0
+        #     else:
+        #         print("Overriding existing log")
+        #         clearIndexes = oldDF[oldDF['log_names'] == log_name].index
+        #         oldDF.drop(clearIndexes, inplace=True)
         newDF = newDF.append(oldDF, ignore_index=True)
 
     #write csv
