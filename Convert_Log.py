@@ -4,7 +4,7 @@ import os
 _log_name = 'sysid_ezg3_19012021'
 
 def convert(log_name, log_folder='./log'):
-    messages = 'vehicle_attitude,sensor_accel,actuator_controls_0,vehicle_local_position'
+    messages = 'vehicle_attitude,sensor_accel,actuator_controls_0,vehicle_local_position,wind_estimate,sensor_gyro'
 
     log_location = "%s/%s.ulg" %(log_folder,log_name)
     csv_location = "./csv"

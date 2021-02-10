@@ -10,6 +10,7 @@ thrust_incl = 0.0   # thrust inclination angle if prop is inclined in rad
 D_p = 0.2286       # prop_diameter in m
 actuator_control_ch = 3 #on what channel are thrust commands given?
 elev_control_ch = 2 #on what channel are elevator commands given?
+estimated_wing_area = 0.3 #m^2, is only used for the visualization of the data
 state_level = False
 
 #Other Setup Parameters
@@ -30,5 +31,21 @@ def add_model():
     with open(f'./model/{model_name}.txt', 'wb') as f:
         pickle.dump(params, f)
 
+
+def add_wing_area():
+    if estimated_wing_area != None:
+        if os.path.isfile(f"./model/{model_name}_W.txt"):
+            print("Wing area already set")
+            if overwrite_existing:
+                print("Overwriting...")
+            else:
+                return 0
+
+        w_A = estimated_wing_area
+
+        with open(f'./model/{model_name}_W.txt', 'wb') as f:
+            pickle.dump(estimated_wing_area, f)
+
 if __name__ == '__main__':
     add_model()
+    add_wing_area()

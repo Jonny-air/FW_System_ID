@@ -11,23 +11,23 @@ from Convert_Log import convert
 #Log Parameters
 model_name = "EasyGlider3_210119_false" #<name>log_name_<committdateYYMMDD>_<statelevel=true,false>
 log_name = 'sysid_ezg3_19012021'
-log_type = 1    #0 = Lift/Drag, 1 = Throttle , 2 = Evaluation Data
+log_type = 0    #0 = Lift/Drag, 1 = Throttle , 2 = Evaluation Data
 log_location = './log'
 # state_level = False   # is obtained from model parameters
-filter_alpha = 1        # 0 no filter, 1 median filter (recommended), 2 moving average filter
+filter_alpha = 0     # 0 no filter, 1 median filter (recommended), 2 moving average filter
 filter_size = 7         # recommend 7 for median filter
 ramp_type = 0        #0 manual ramp (or throttle), 1 elevator ramp, 2 pitch ramp
-start_min = 9
-start_sec = 35
+start_min = 4
+start_sec = 52
 end_min = 9
 end_sec = 48
 
 #Other Setup Parameters
 override_logs = True
 verbose = True
-show_plots = False
-rho = 1.225
-g = 9.80
+show_plots = True
+rho = 1.222
+g = 9.81
 
 def add_log(verbose, show_plots):
     #SETUP
@@ -41,14 +41,14 @@ def add_log(verbose, show_plots):
     if not os.path.isfile(f'./csv/{log_name}_vehicle_attitude_0.csv'):
         if verbose: print("Converting from ulog to csv...")
         convert(log_name)
-    AttitudeDF = pd.read_csv(f'./csv/{log_name}_vehicle_attitude_0.csv', index_col=0, usecols=[0, 4, 5, 6, 7])
+    AttitudeDF = pd.read_csv(f'./csv/{log_name}_vehicle_attitude_0.csv', index_col=0, usecols=[0, 1, 2, 3, 4, 5, 6, 7])
     PosDF = pd.read_csv(f'./csv/{log_name}_vehicle_local_position_0.csv', index_col=0, usecols=[0, 10, 11, 12])
     AccelDF = pd.read_csv(f'./csv/{log_name}_sensor_accel_0.csv', index_col=0, usecols=[0, 3, 4, 5])
+    WindDF = pd.read_csv(f'./csv/{log_name}_wind_estimate_0.csv', usecols=[0, 1, 2, 3])
 
     MergedDf = pd.merge_asof(PosDF, AttitudeDF, left_index=True, right_index=True)
     MergedDf = pd.merge_asof(MergedDf, AccelDF, left_index=True, right_index=True)
 
-    # if log_type == 1 or log_type == 2:
     ActuatorDF = pd.read_csv(f'./csv/{log_name}_actuator_controls_0_0.csv', index_col=0, usecols=[0, 2, 3, 4, 5, 6, 7, 8, 9])
     MergedDf = pd.merge_asof(MergedDf, ActuatorDF, left_index=True, right_index=True)
 
@@ -71,39 +71,58 @@ def add_log(verbose, show_plots):
 
     it = 0  # is there a better way to do this?
     for index, row in MergedDf.iterrows():
-        # velocity vectors
-        velocities = np.append(velocities, [[row['vx'], row['vy'], row['vz']]], axis=0)
-        # attitude quaternions
-        atts = np.append(atts, [[row['q[0]'], row['q[1]'], row['q[2]'], row['q[3]']]], axis=0)
-        # Rotation Matrix from body fram to local frame
-        R, roll, pitch, yaw = find_rotation(atts[it, :])
+        # attitude quaternion
+        att = row['q[0]'], row['q[1]'], row['q[2]'], row['q[3]']
+        # Rotation Matrix from body frame to local frame
+        R, roll, pitch, yaw = find_rotation(att)
+        if log_type != 2:
+            if roll>3*np.pi/180: continue
+            if log_type == 0 and row['pitchspeed'] > 5*np.pi/180 : continue
+            if log_type == 0 and row[f'control[{actuator_control_ch}]'] > 0.01 : continue
+            if log_type == 2 and row[f'control[{actuator_control_ch}]'] < 0.1: continue
+        #check take the clostest wind estimate to the current timestamp
+        clostest_wind_index = WindDF['timestamp'].sub(index).abs().idxmin()
+        wN =WindDF.loc[clostest_wind_index, 'windspeed_north']
+        wE =WindDF.loc[clostest_wind_index, 'windspeed_east']
+        wD =WindDF.loc[clostest_wind_index, 'windspeed_down']
+
+        #air-mass-relative velocity in inertial frame
+        velocities = np.append(velocities, [[row['vx']-wN, row['vy']-wE, row['vz']-wD]], axis=0)
+        #velocity in body frame
+        v_x, v_y, v_z = np.linalg.inv(R)@velocities[it,:] #forward, right, down
+        #neglect sidewards component for airspeed
+        va = np.sqrt(v_x**2 + v_z**2)
+        if va == 0:
+            continue #avoid division by zero down the line
+        vas = np.append(vas, [[va]], axis=0)  # don't consider sideslip for airspeed
+
         pitches = np.append(pitches, [[pitch]], axis=0)
         elevs = np.append(elevs, [[float(row[f'control[{elev_control_ch}]'])]], axis=0)
         rolls = np.append(rolls, [[roll]], axis=0)
-        forward_vector = np.array([1.0 * np.cos(yaw), 1.0 * np.sin(yaw), 0.0])
-        right_vector = np.array([-1.0 * np.sin(yaw), 1.0 * np.cos(yaw), 0.0])
-        # airspeed v_a
-        vas = np.append(vas, [[project(velocities[it, :], forward_vector)]], axis=0)
+        # forward_vector = np.array([1.0 * np.cos(yaw), 1.0 * np.sin(yaw), 0.0])
+        # right_vector = np.array([-1.0 * np.sin(yaw), 1.0 * np.cos(yaw), 0.0])
+        # forward component of airspeed
+        # va_f = project(velocities[it,:], forward_vector)
         # flight path angles
         # yaw = np.arctan2(R[1,0], 1.0-2*(row['q[0]']**2 + row['q[1]']**2)) #atan2(2.0 * (q.q3 * q.q0 + q.q1 * q.q2) , - 1.0 + 2.0 * (q.q0 * q.q0 + q.q1 * q.q1))
 
-        if vas[it] != 0:
-            fpas = np.append(fpas, [np.arctan2(- row['vz'], vas[it])], axis=0)  # fpa = arcsin(vz/va) in rad
-        else:
-            fpas = np.append(fpas, [[0.0]], axis=0)  # fpa = 0 in rad
+        fpas = np.append(fpas, [[np.arcsin(-row['vz']/ va)]], axis=0)  # fpa = arcsin(vz/va) in rad
+
         # alpha
         alphas = np.append(alphas, [pitch - fpas[it]], axis=0)
         # va_dots
         body_accel = np.array([row['x'], row['y'], row['z']])
-        local_accel = R @ body_accel
+        g_accel = np.linalg.inv(R) @ [0,0,g]
         if state_level:
-            local_accel = local_accel / 1000
+            body_accel = body_accel / 1000
         else:
-            local_accel[2] += g
-        va_dots = np.append(va_dots, [[project(local_accel, velocities[it, :])]], axis=0)
+            g_accel = np.linalg.inv(R) @ [0, 0, g]
+            body_accel += g_accel
+
+        va_dots = np.append(va_dots, [np.cos(alphas[it])*body_accel[0] + np.sin(alphas[it])*body_accel[2]], axis=0) #airspeed change as change of total air mass reltive speed to avoid having attitude in here
         # fpa_dots
-        fpa_dot_vec = - np.cross(velocities[it, :], np.transpose(right_vector))
-        fpa_dots = np.append(fpa_dots, [[project(local_accel, fpa_dot_vec)]], axis=0)
+        # fpa_dot_vec = - np.cross(velocities[it, :], np.transpose(right_vector))
+        fpa_dots = np.append(fpa_dots, [(-np.sin(alphas[it])*body_accel[0] + np.cos(alphas[it])*body_accel[2])], axis=0) #this is actually fpa_dot*va
         if log_type == 1 or log_type == 2:
             # thrust
             u_t = float(row[f'control[{actuator_control_ch}]'])
@@ -166,14 +185,14 @@ def add_log(verbose, show_plots):
         print("Trying to append to existing csv")
         # import existing csv to dataframe
         oldDF = pd.read_csv(csv_path, index_col=0)
-        # if oldDF.isin([f'{log_name}']).any().any():
-        #     if not override_logs:
-        #         print("[ERROR] A log with this name was already added")
-        #         return  0
-        #     else:
-        #         print("Overriding existing log")
-        #         clearIndexes = oldDF[oldDF['log_names'] == log_name].index
-        #         oldDF.drop(clearIndexes, inplace=True)
+        if oldDF.isin([f'{log_name}']).any().any():
+            if not override_logs:
+                print("[ERROR] A log with this name was already added")
+                return  0
+            else:
+                print("Overriding existing log")
+                clearIndexes = oldDF[oldDF['log_names'] == log_name].index
+                oldDF.drop(clearIndexes, inplace=True)
         newDF = newDF.append(oldDF, ignore_index=True)
 
     #write csv

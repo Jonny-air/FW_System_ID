@@ -9,37 +9,50 @@ import matplotlib.pyplot as plt
 from Convert_Log import convert
 
 #Log Parameters
-log_name = 'log_altitude_2'
+log_name = 'log_impact_1'
+plt.rcParams.update({'font.size': 13})
 log_location = './other_logs'
+_xlim = None
+_xlim = [56.5, 61.5]
+_ylim = [-5, 5]
 
 if (not os.path.isfile(f"./csv/{log_name}_sensor_accel_0.csv")):
     print("CSV does not exists yet - converting from log")
     convert(log_name, log_folder=log_location)
     # convert into dataframes
-MergedDF = pd.read_csv(f'./csv/{log_name}_sensor_accel_0.csv', index_col=0)
+MergedDF = pd.read_csv(f'./csv/{log_name}_sensor_accel_0.csv')
 
-acc_x = np.array([MergedDF.loc[:, 'x'].values]).transpose()
-acc_y = np.array([MergedDF.loc[:, 'y'].values]).transpose()
-acc_z = np.array([MergedDF.loc[:, 'z'].values]).transpose()
-t = range(acc_x.shape[0])
-fig, axs = plt.subplots(3, figsize=(10, 10))
+acc_x = np.array([MergedDF.loc[:, 'x'].values]).transpose()/1000
+acc_y = np.array([MergedDF.loc[:, 'y'].values]).transpose()/1000
+acc_z = -np.array([MergedDF.loc[:, 'z'].values]).transpose()/1000
+# t = range(acc_x.shape[0])
+t = MergedDF['timestamp'].to_numpy() * 1.0E-6
 
-axs[0].plot(t, acc_x, 'b', label='X accelerations')
-axs[1].plot(t, acc_y, 'b', label='Y accelerations')
-axs[2].plot(t, acc_z, 'b', label="Z accelerations")
 
-axs[0].set_xlabel('Datapoints')
-axs[1].set_xlabel('Datapoints')
-axs[2].set_xlabel('Datapoints')
-axs[0].set_ylabel('m/s2')
-axs[1].set_ylabel('m/s2')
-axs[2].set_ylabel('m/s2')
+def shift_time(time, start_time):
+    time -= start_time
 
-axs[0].grid()
-axs[1].grid()
-axs[2].grid()
+shift_time(t, t[0])
 
-axs[0].legend(loc='best')
-axs[1].legend(loc='best')
-axs[2].legend(loc='best')
+if _xlim is not None:
+    shift_time(t, _xlim[0])
+    _xlim[1] -= _xlim[0]
+    _xlim[0] = 0
+
+
+fig, axs = plt.subplots(1, figsize=(7,5))
+
+axs.plot(t, acc_x, 'b', label='X acceleration')
+axs.plot(t, acc_y, 'g', label='Y acceleration')
+axs.plot(t, acc_z, 'm', label="Z acceleration")
+
+for ax in [axs]:
+    ax.set_xlabel('Time [s]')
+    ax.set_ylabel(r'Acceleration [$\frac{m}{s^2}$]')
+    ax.grid()
+    ax.legend(loc='best')
+    ax.set_xlim(_xlim[0]-5, _xlim[1])
+    ax.set_ylim(_ylim)
+
+plt.tight_layout()
 plt.show()

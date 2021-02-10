@@ -8,7 +8,7 @@ _verbose = True
 _env = [9.8, 1.225]
 
 def import_data(model_name, log_type, ramp_types = None, verbose = False, env = _env): #TODO add options to pass additinal arguments to only use part of the data
-    csv_path = f"./csv/{model_name}_{log_type}.csv"
+    csv_path = f"./csv/{model_name}_{log_type}_backup.csv"
     if os.path.isfile(csv_path):
         # import existing csv to dataframe
         DF = pd.read_csv(csv_path)
